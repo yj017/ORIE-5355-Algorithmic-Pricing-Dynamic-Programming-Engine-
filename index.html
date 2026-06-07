@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Dive: Algorithmic Pricing Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#050505',
+                        darkCard: '#0a0a0a',
+                    },
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <style>
+        body { background-color: #050505; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #050505; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+    </style>
+</head>
+<body class="text-zinc-400 antialiased selection:bg-zinc-300 selection:text-black">
+
+    <nav class="sticky top-0 z-50 bg-darkBg/90 backdrop-blur-md border-b border-zinc-800/80">
+        <div class="max-w-4xl mx-auto px-6 h-14 flex items-center">
+            <a href="https://yj017.github.io/" class="text-sm font-mono text-zinc-500 hover:text-white transition-colors flex items-center gap-2">
+                <i class="fa-solid fa-arrow-left"></i> Back to Portfolio
+            </a>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto px-6 pt-16 pb-24 space-y-16">
+
+        <header class="space-y-4">
+            <div class="inline-block px-3 py-1 bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-300 rounded-full mb-4">
+                Operations Research & Information Engineering
+            </div>
+            <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">Algorithmic Pricing & Dynamic Programming Engine</h1>
+        </header>
+
+        <section class="space-y-6">
+            <h2 class="text-2xl font-bold text-white border-b border-zinc-800 pb-2">1. Executive Summary</h2>
+            <p class="leading-relaxed">
+                This project focuses on demand estimation and real-time revenue optimization in both monopoly and competitive environments. To meet a strict 0.5-second runtime limit, we decoupled the heavy computation into an offline Dynamic Programming solver and an online fast-lookup agent. By utilizing XGBoost for demand prediction and K-Means for state discretization, we achieved O(1) online pricing decisions.
+            </p>
+        </section>
+
+        <section class="space-y-6">
+            <h2 class="text-2xl font-bold text-white border-b border-zinc-800 pb-2">2. Demand Estimation & Supervised Learning</h2>
+            <p class="leading-relaxed">
+                We treated demand estimation as a supervised binary classification problem to predict the purchase probability P(Buy | Price, Features). We conducted a "Bake-Off" strategy evaluating three candidate models over a 500-timestep simulation:
+            </p>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left text-zinc-400 border-collapse">
+                    <thead class="text-xs text-zinc-500 uppercase bg-zinc-900 border-b border-zinc-800">
+                        <tr>
+                            <th class="px-6 py-4">Model</th>
+                            <th class="px-6 py-4">Simulation Profit</th>
+                            <th class="px-6 py-4">Inference Time</th>
+                            <th class="px-6 py-4">Conclusion</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-800/80">
+                        <tr class="hover:bg-zinc-900/50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-white">Logistic Regression</td>
+                            <td class="px-6 py-4 font-mono">$15,265</td>
+                            <td class="px-6 py-4 font-mono">19.8s</td>
+                            <td class="px-6 py-4">Rejected. Failed to capture complex customer segments, leaving over $6,000 in potential revenue uncaptured.</td>
+                        </tr>
+                        <tr class="hover:bg-zinc-900/50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-white">Random Forest</td>
+                            <td class="px-6 py-4 font-mono">$20,142</td>
+                            <td class="px-6 py-4 font-mono text-red-400">15m 3s</td>
+                            <td class="px-6 py-4">Rejected. While highly accurate, the massive overhead of querying hundreds of trees caused an unacceptable runtime bottleneck.</td>
+                        </tr>
+                        <tr class="bg-zinc-800/20 hover:bg-zinc-800/40 transition-colors">
+                            <td class="px-6 py-4 font-bold text-emerald-400">XGBoost (Champion)</td>
+                            <td class="px-6 py-4 font-mono text-emerald-400">$21,236</td>
+                            <td class="px-6 py-4 font-mono text-emerald-400">21.8s</td>
+                            <td class="px-6 py-4 text-emerald-100">Selected. Generated the highest profit while remaining 41x faster than Random Forest, successfully capturing non-linearities.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <p class="leading-relaxed mt-4">
+                To generate the unconstrained optimal pricing CSV, we executed a vectorized grid search. The search grid utilized 200 points, concentrating 80% of the density in the $0 to $80 "Sweet Spot" region (where 75% of sales occur), and the remaining 20% in the sparse long-tail region.
+            </p>
+        </section>
+
+        <section class="space-y-6">
+            <h2 class="text-2xl font-bold text-white border-b border-zinc-800 pb-2">3. Overcoming the Capacity Constraint (Offline DP)</h2>
+            <p class="leading-relaxed">
+                Moving from unconstrained to constrained optimization introduced a severe complexity challenge. We face a finite inventory (Max = 20) that replenishes every cycle (T = 20). Every sale represents an opportunity cost—selling a unit now means it cannot be sold to a potentially higher-value customer later.
+            </p>
+            <p class="leading-relaxed">
+                Because evaluating the optimal opportunity cost via the Bellman Equation is too slow for the 0.5-second real-time limit, we decoupled the process. We built an offline Dynamic Programming solver to pre-compute the optimal policy table.
+            </p>
+
+            <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+                <h3 class="text-lg font-bold text-white">State Discretization & The Bellman Equation</h3>
+                <p class="text-sm text-zinc-400">
+                    To make the state-space computationally tractable, we first clustered the infinite customer covariate space into K=20 discrete types using K-Means. Then, we solved the backward induction for the Value Function, V(t, i, k), representing time, inventory, and customer type:
+                </p>
+                <div class="bg-black/50 p-5 rounded-lg overflow-x-auto text-sm text-emerald-400 font-mono text-center">
+                    V(t, i, k) = Max_p { P_buy * [ Price + V(t-1, i-1, k) ] + (1 - P_buy) * V(t-1, i, k) }
+                </div>
+                <p class="text-sm text-zinc-500">
+                    By doing this heavy lifting offline (which took ~33 seconds), the live Dynamic Agent only needs to perform an O(1) matrix lookup directly accessing the pre-computed optimal price.
+                </p>
+            </div>
+        </section>
+
+        <section class="space-y-6">
+            <h2 class="text-2xl font-bold text-white border-b border-zinc-800 pb-2">4. Competitive Strategy & Adaptive Layer</h2>
+            <p class="leading-relaxed">
+                In Part 2 (competition), we used our monopoly DP solution as a logical anchor. Rather than making fragile assumptions about opponent rationality, we implemented an adaptive feedback loop relying on observed behavioral signals—specifically our recent win rate and inventory depletion.
+            </p>
+
+            <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+                <h3 class="text-lg font-bold text-white">Dual-Prediction Bidding System</h3>
+                <p class="text-sm text-zinc-400">
+                    The dynamic agent maintains two competing models to anticipate opponent behavior:
+                </p>
+                <ul class="list-disc list-inside space-y-2 text-sm text-zinc-300">
+                    <li><strong>Smart Prediction:</strong> Scales the baseline monopoly price by calculating a rolling 40th percentile of historical competitor-to-monopoly price ratios.</li>
+                    <li><strong>Dumb Prediction:</strong> Directly adjusts based on the last transaction—increasing by 10% if the opponent won, decreasing by 10% if we won.</li>
+                </ul>
+                <p class="text-sm text-zinc-400">
+                    The agent tracks an exponentially weighted moving average error to dynamically shift trust to the model with the lowest recent error margin. Finally, strict inventory floors are applied: holding firm at 90% of monopoly value for the final unit, or dropping to an aggressive $5 floor to liquidate excess stock.
+                </p>
+            </div>
+        </section>
+
+        <section class="space-y-4">
+            <h2 class="text-2xl font-bold text-white border-b border-zinc-800 pb-2">5. Conclusion</h2>
+            <p class="leading-relaxed">
+                The static pricing agent achieved 10th place out of 36 teams, validating our XGBoost and hybrid grid-search methodology. While the dynamic agent secured 17th place, we successfully engineered an architecture capable of O(1) decision-making under strict computational limits, providing valuable lessons in bridging high-fidelity offline models with latency-sensitive online execution.
+            </p>
+        </section>
+
+    </main>
+
+</body>
+</html>
